@@ -1,84 +1,118 @@
 "use client";
 import React, { useEffect, useState } from "react";
+import ReactApexChart from "react-apexcharts";
+import { ApexOptions } from "apexcharts";
+import { Box } from "@mui/material";
+import useMediaQuery from "@mui/material/useMediaQuery";
 
-// Define the type for the data array
-type TradeData = {
-  c: number[] | null;
-  p: number;
-  s: string;
-  t: number;
-  v: number;
-};
+interface KlineDataPoint {
+  x: Date;
+  y: number[];
+}
+
+interface SeriesData {
+  data: KlineDataPoint[];
+}
 
 const WebSocketComponent = () => {
-  const [data, setData] = useState<TradeData[]>([]);
-  const [minuteData, setMinuteData] = useState([]);
-  const [ohlc, setOhlc] = useState<number[]>([]);
+  const [data, setData] = useState<any[]>([]);
+  const [series, setSeries] = useState<SeriesData[]>([{ data: [] }]);
+  const tablet = useMediaQuery("(min-width:960px)");
 
   useEffect(() => {
     const socket = new WebSocket("ws://localhost:8080/ws");
 
     socket.onmessage = (event) => {
-      // Parse incoming JSON data
-      // console.log(event.data);
       const newData = JSON.parse(event.data);
-      // Update state by appending new data to existing data
-      newData["type"] !== "ping" &&
-        setData((prevData) => [...prevData, ...newData.data]);
-    };
-    // Clear the state every 1 minute
-    const clearState = setInterval(() => {
-      console.log("hi");
-      //To ensure that you're working with the latest state of data, you should use a functional update inside the setInterval callback.
+      if (newData.e === "trade") {
+        var date = new Date(newData.E * 1000);
 
-      setData((prevData) => {
-        if (prevData.length > 0) {
-          // Initialize variables
-          let openingPrice = prevData[0].p;
-          let closingPrice = prevData[prevData.length - 1].p;
-          let highestPrice = prevData[0].p;
-          let lowestPrice = prevData[0].p;
-
-          // Update variables
-          prevData.forEach((trade) => {
-            highestPrice = Math.max(highestPrice, trade.p);
-            lowestPrice = Math.min(lowestPrice, trade.p);
-          });
-          setOhlc([openingPrice, closingPrice, highestPrice, lowestPrice]);
-          console.log("donee");
+        // Extract hours, minutes, and seconds
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        const seconds = String(date.getSeconds()).padStart(2, "0");
+        newData.date = hours + ":" + minutes + ":" + seconds;
+        console.log(newData);
+        // Add to data if it's a kline event, regardless of "x" status
+        setData((prevData) => [...prevData, newData]);
+      } else if (newData.e === "kline") {
+        if (newData.k.x === true) {
+          setSeries((prevSeries) => [
+            {
+              data: [
+                ...prevSeries[0].data,
+                {
+                  x: new Date(newData.E), // Convert UNIX timestamp to JavaScript Date object
+                  y: [
+                    parseFloat(newData.k.o), // open
+                    parseFloat(newData.k.h), // high
+                    parseFloat(newData.k.l), // low
+                    parseFloat(newData.k.c), // close
+                  ],
+                },
+              ],
+            },
+          ]);
         }
-        return []; // Clear data
-      });
-    }, 5000); // 5 seconds for testing purpose
+      }
+    };
 
     return () => {
       socket.close();
-      clearInterval(clearState); // Cleanup interval
     };
   }, []);
 
+  const options: ApexOptions = {
+    chart: {
+      type: "candlestick", // Use 'candlestick' instead of 'string'
+      height: 350,
+    },
+    // title: {
+    //   text: "CandleStick Chart",
+    //   align: "left",
+    // },
+    xaxis: {
+      type: "datetime", // Correctly specified as 'datetime'
+    },
+    yaxis: {
+      tooltip: {
+        enabled: true,
+      },
+    },
+  };
+
   return (
-    <div>
-      <h1 style={{ textAlign: "center" }}>Data from Server</h1>
+    <Box
+      display={"flex"}
+      alignContent={"center"}
+      flexDirection={tablet ? "row" : "column"}
+    >
+      <Box width={tablet ? "50%" : "100%"}>
+        <ReactApexChart
+          options={options}
+          series={series}
+          type="candlestick"
+          height={350}
+        />
+      </Box>
+
       {/* Render data */}
-      <div style={{ height: "300px", width: "100%", overflowY: "scroll" }}>
+      <Box
+        height={"300px"}
+        width={tablet ? "50%" : "100%"}
+        overflow={"scroll"}
+        alignSelf={"center"}
+      >
         {data
           .slice()
           .reverse()
           .map((item, index) => (
             <p style={{ fontSize: 12 }} key={index}>
-              {JSON.stringify(item)}
+              {item.date}: {item.s} was bought for {item.p} at volume {item.q}
             </p>
           ))}
-      </div>
-      <div>
-        {ohlc && (
-          <p>
-            {ohlc[0]}, {ohlc[1]}, {ohlc[2]}, {ohlc[3]}
-          </p>
-        )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 };
 
